@@ -1,2 +1,2 @@
 # nanoGPT
-Small GPT model based on Kaparthy's nanoGPT. 
+Small GPT model based on Kaparthy's nanoGPT video.
