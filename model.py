@@ -3,15 +3,15 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # hyperparams
-batch_size = 32
-block_size = 8 # max context-length
+batch_size = 64
+block_size = 64 # max context-length
 max_iters = 5000
 eval_interval = 500
 learning_rate = 1e-3
 eval_iters = 200
-n_emb = 32
-n_heads = 4
-n_layer = 10
+n_emb = 64
+n_heads = 8
+n_layer = 4
 n_dropout = 0.2
 # --------
 
@@ -63,7 +63,7 @@ class Head(nn.Module):
         self.value = nn.Linear(n_emb, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
-        self.dropout(n_dropout)
+        self.dropout = nn.Dropout(n_dropout)
 
     def forward(self, x):
         B,T,C = x.shape
