@@ -81,17 +81,21 @@ class MultiHead(nn.Module):
     def __init__(self, num_heads, head_size):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.proj = nn.Linear(n_emb, n_emb)
 
     def forward(self, x):
-        return torch.cat([h(x) for h in self.heads], dim=-1)
+        out = torch.cat([h(x) for h in self.heads], dim=-1)
+        out = self.proj(out)
+        return out
 
 
 class FeedForward(nn.Module):
     def __init__(self, n_emb):
         super().__init__()
         self.layers = nn.Sequential(
-            nn.Linear(n_emb, n_emb),
-            nn.ReLU()
+            nn.Linear(n_emb, 4 * n_emb),
+            nn.ReLU(),
+            nn.Linear(4 * n_emb, n_emb)
         )
 
     def forward(self, x):
@@ -108,8 +112,8 @@ class Block(nn.Module):
         self.ffwd = FeedForward(n_emb)
 
     def forward(self, x):
-        x = self.sa(x)
-        x = self.ffwd(x)
+        x = x + self.sa(x)
+        x = x + self.ffwd(x)
         return x
 
 
@@ -161,6 +165,9 @@ model = BigramLanguageModel(vocab_size)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
+params = model.parameters()
+params_count = sum(p.nelement() for p in params)
+print(f"number of parameters={params_count}")
 for iter in range(max_iters):
     if iter % eval_interval == 0:
         losses = estimate_loss()
