@@ -110,10 +110,12 @@ class Block(nn.Module):
         head_size = n_emb // n_heads
         self.sa = MultiHead(head_size=head_size, num_heads=n_heads)
         self.ffwd = FeedForward(n_emb)
+        self.ln1 = nn.LayerNorm(n_emb)
+        self.ln2 = nn.LayerNorm(n_emb)
 
     def forward(self, x):
-        x = x + self.sa(x)
-        x = x + self.ffwd(x)
+        x = x + self.sa(self.ln1(x))
+        x = x + self.ffwd(self.ln2(x))
         return x
 
 
