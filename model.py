@@ -11,6 +11,8 @@ learning_rate = 1e-3
 eval_iters = 200
 n_emb = 32
 n_heads = 4
+n_layer = 10
+n_dropout = 0.2
 # --------
 
 torch.manual_seed(1337)
@@ -61,6 +63,8 @@ class Head(nn.Module):
         self.value = nn.Linear(n_emb, head_size, bias=False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
+        self.dropout(n_dropout)
+
     def forward(self, x):
         B,T,C = x.shape
         k = self.key(x) 
@@ -70,6 +74,7 @@ class Head(nn.Module):
         wei = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # Mark 0 values as -inf so softmax result is 0
         wei = F.softmax(wei, dim=-1) # (B, T, T)
+        wei = self.dropout(wei)
 
         # Get the weighted values.
         v = self.value(x) # (B, T, C)
@@ -82,10 +87,11 @@ class MultiHead(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_emb, n_emb)
+        self.dropout = nn.Dropout(n_dropout)
 
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
-        out = self.proj(out)
+        out = self.dropout(self.proj(out))
         return out
 
 
@@ -95,7 +101,8 @@ class FeedForward(nn.Module):
         self.layers = nn.Sequential(
             nn.Linear(n_emb, 4 * n_emb),
             nn.ReLU(),
-            nn.Linear(4 * n_emb, n_emb)
+            nn.Linear(4 * n_emb, n_emb),
+            nn.Dropout(n_dropout)
         )
 
     def forward(self, x):
@@ -128,11 +135,9 @@ class BigramLanguageModel(nn.Module):
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.position_embedding_table = nn.Embedding(block_size, n_emb)
         self.blocks = nn.Sequential(
-            Block(n_emb=n_emb, n_heads=n_heads),
-            Block(n_emb=n_emb, n_heads=n_heads),
-            Block(n_emb=n_emb, n_heads=n_heads),
-            nn.LayerNorm(n_emb)
+            *[Block(n_emb=n_emb, n_heads=n_heads) for _ in range(n_layer)]
         )
+        self.ln = nn.LayerNorm(n_emb) # final layer norm
         self.lm_head = nn.Linear(n_emb, vocab_size)
 
     def forward(self, idx, targets=None):
@@ -142,6 +147,7 @@ class BigramLanguageModel(nn.Module):
         pos_embedding = self.position_embedding_table(torch.arange(T)) # (T, n_emb)
         x = tok_embedding + pos_embedding #(B, T, n_emb)
         x = self.blocks(x)
+        x = self.ln(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
         if targets is None:
             loss = None
