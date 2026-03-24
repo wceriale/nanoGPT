@@ -51,6 +51,30 @@ def estimate_loss():
     model.train()
     return out
 
+# Self-attention head 
+class Head(nn.Module):
+    def __init__(self, head_size):
+        self.key = nn.Linear(n_emb, head_size, bias=False)
+        self.query = nn.Linear(n_emb, head_size, bias=False)
+        self.value = nn.Linear(n_emb, head_size, bias=False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
+
+    def forward(self, x):
+        B,T,C = x.shape
+        k = self.key(x) 
+        q = self.query(x)
+
+        # get attention scores
+        wei = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # Mark 0 values as -inf so softmax result is 0
+        wei = F.softmax(wei, dim=1) # (B, T, T)
+
+        # Get the weighted values.
+        v = self.value(x) # (B, T, C)
+        out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
+        return out
+
+
 class BigramLanguageModel(nn.Module):
 
     def __init__(self, vocab_size):
@@ -58,11 +82,16 @@ class BigramLanguageModel(nn.Module):
 
         # Create a lookup table.
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
+        self.position_embedding_table = nn.Embedding(block_size, n_emb)
         self.lm_head = nn.Linear(n_emb, vocab_size)
 
     def forward(self, idx, targets=None):
+        B, T = idx.shape
+
         tok_embedding = self.token_embedding_table(idx) # (B, T, n_emb)
-        logits = self.lm_head(tok_embedding) # (B, T, vocab_size)
+        pos_embedding = self.position_embedding_table(torch.arrange(T)) # (T, n_emb)
+        x = tok_embedding + pos_embedding #(B, T, n_emb)
+        logits = self.lm_head(x) # (B, T, vocab_size)
         if targets is None:
             loss = None
         else:
