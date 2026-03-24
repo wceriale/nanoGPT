@@ -9,6 +9,7 @@ max_iters = 3000
 eval_interval = 300
 learning_rate = 1e-2
 eval_iters = 200
+n_emb = 32
 # --------
 
 torch.manual_seed(1337)
@@ -56,10 +57,12 @@ class BigramLanguageModel(nn.Module):
         super().__init__()
 
         # Create a lookup table.
-        self.token_embedding_table = nn.Embedding(vocab_size, vocab_size)
+        self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
+        self.lm_head = nn.Linear(n_emb, vocab_size)
 
     def forward(self, idx, targets=None):
-        logits = self.token_embedding_table(idx)
+        tok_embedding = self.token_embedding_table(idx) # (B, T, n_emb)
+        logits = self.lm_head(tok_embedding) # (B, T, vocab_size)
         if targets is None:
             loss = None
         else:
