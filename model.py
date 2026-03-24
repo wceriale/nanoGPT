@@ -5,11 +5,12 @@ from torch.nn import functional as F
 # hyperparams
 batch_size = 32
 block_size = 8 # max context-length
-max_iters = 3000
-eval_interval = 300
-learning_rate = 1e-2
+max_iters = 5000
+eval_interval = 500
+learning_rate = 1e-3
 eval_iters = 200
 n_emb = 32
+n_heads = 4
 # --------
 
 torch.manual_seed(1337)
@@ -54,6 +55,7 @@ def estimate_loss():
 # Self-attention head 
 class Head(nn.Module):
     def __init__(self, head_size):
+        super().__init__()
         self.key = nn.Linear(n_emb, head_size, bias=False)
         self.query = nn.Linear(n_emb, head_size, bias=False)
         self.value = nn.Linear(n_emb, head_size, bias=False)
@@ -67,12 +69,22 @@ class Head(nn.Module):
         # get attention scores
         wei = q @ k.transpose(-2, -1) * C**-0.5  # (B, T, C) @ (B, C, T) -> (B, T, T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) # Mark 0 values as -inf so softmax result is 0
-        wei = F.softmax(wei, dim=1) # (B, T, T)
+        wei = F.softmax(wei, dim=-1) # (B, T, T)
 
         # Get the weighted values.
         v = self.value(x) # (B, T, C)
         out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
         return out
+    
+
+class MultiHead(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)
+
 
 
 class BigramLanguageModel(nn.Module):
@@ -83,14 +95,16 @@ class BigramLanguageModel(nn.Module):
         # Create a lookup table.
         self.token_embedding_table = nn.Embedding(vocab_size, n_emb)
         self.position_embedding_table = nn.Embedding(block_size, n_emb)
+        self.sa_heads = MultiHead(n_heads, n_emb // n_heads)
         self.lm_head = nn.Linear(n_emb, vocab_size)
 
     def forward(self, idx, targets=None):
         B, T = idx.shape
 
         tok_embedding = self.token_embedding_table(idx) # (B, T, n_emb)
-        pos_embedding = self.position_embedding_table(torch.arrange(T)) # (T, n_emb)
+        pos_embedding = self.position_embedding_table(torch.arange(T)) # (T, n_emb)
         x = tok_embedding + pos_embedding #(B, T, n_emb)
+        x = self.sa_heads(x) # Apply head of self-attention. (B, T, n_emb)
         logits = self.lm_head(x) # (B, T, vocab_size)
         if targets is None:
             loss = None
@@ -104,7 +118,8 @@ class BigramLanguageModel(nn.Module):
     
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            logits, loss = self(idx)
+            idx_cond = idx[:, -block_size:]
+            logits, loss = self(idx_cond)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=1)
             idx_next = torch.multinomial(probs, num_samples=1)
