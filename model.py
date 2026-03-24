@@ -50,7 +50,7 @@ def estimate_loss():
     model.train()
     return out
 
-class BigramLanguageModel(nn.module):
+class BigramLanguageModel(nn.Module):
 
     def __init__(self, vocab_size):
         super().__init__()
@@ -70,8 +70,8 @@ class BigramLanguageModel(nn.module):
 
         return logits, loss
     
-    def generate(self, idx, max_tokens):
-        for _ in range(max_tokens):
+    def generate(self, idx, max_new_tokens):
+        for _ in range(max_new_tokens):
             logits, loss = self(idx)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=1)
@@ -84,7 +84,7 @@ model = BigramLanguageModel(vocab_size)
 optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
 
-for iter in max(max_iters):
+for iter in range(max_iters):
     if iter % eval_interval == 0:
         losses = estimate_loss()
         print(f"Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
