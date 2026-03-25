@@ -1,18 +1,20 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import random
 
 # hyperparams
-batch_size = 64
-block_size = 64 # max context-length
-max_iters = 5000
+batch_size = 8
+block_size = 8 # max context-length
+max_iters = 1000
 eval_interval = 500
 learning_rate = 1e-3
 eval_iters = 200
-n_emb = 64
-n_heads = 8
-n_layer = 4
-n_dropout = 0.2
+n_emb = 8
+n_heads = 2
+n_layer = 1
+n_dropout = 0.0
+n_global_it_count = 0
 # --------
 
 torch.manual_seed(1337)
@@ -61,6 +63,15 @@ class Head(nn.Module):
         self.key = nn.Linear(n_emb, head_size, bias=False)
         self.query = nn.Linear(n_emb, head_size, bias=False)
         self.value = nn.Linear(n_emb, head_size, bias=False)
+        self.name = random.randint(0, 100)
+
+        # Force weights to be a specific value to start.
+        for layer in [self.key, self.query, self.value]:
+            with torch.no_grad():
+                layer.weight.fill_(0.5)
+                if layer.bias is not None:
+                    layer.bias.fill_(0.5)
+
         self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)))
 
         self.dropout = nn.Dropout(n_dropout)
@@ -79,6 +90,10 @@ class Head(nn.Module):
         # Get the weighted values.
         v = self.value(x) # (B, T, C)
         out = wei @ v # (B, T, T) @ (B, T, C) -> (B, T, C)
+
+        if (n_global_it_count == max_iters - 1):
+            print(f'head={self.name} q[0]={q[0]}')
+            print(f'head={self.name} k[0]={v[0]}')
         return out
     
 
@@ -87,6 +102,13 @@ class MultiHead(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_emb, n_emb)
+
+        # Force the project layer to be constant.
+        with torch.no_grad():
+            self.proj.weight.fill_(0.5)
+            if self.proj.bias is not None:
+                self.proj.bias.fill_(0.5)
+
         self.dropout = nn.Dropout(n_dropout)
 
     def forward(self, x):
@@ -178,9 +200,13 @@ params = model.parameters()
 params_count = sum(p.nelement() for p in params)
 print(f"number of parameters={params_count}")
 for iter in range(max_iters):
+    print(f'iter={iter}')
     if iter % eval_interval == 0:
         losses = estimate_loss()
         print(f"Step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    if iter == max_iters - 1:
+        losses = estimate_loss()
+        print(f"Last step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
     
     xb, yb = get_batch('train')
 
@@ -188,6 +214,7 @@ for iter in range(max_iters):
     optimizer.zero_grad(set_to_none=True)
     loss.backward()
     optimizer.step()
+    n_global_it_count += 1
 
 context = torch.zeros((1, 1), dtype=torch.long)
-print(decode(model.generate(context, max_new_tokens=500)[0].tolist()))
+# print(decode(model.generate(context, max_new_tokens=500)[0].tolist()))
